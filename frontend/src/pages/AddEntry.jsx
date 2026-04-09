@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "../api";
+import Confetti from "react-confetti";
+import { useWindowSize } from "react-use";
 
 const AddEntry = () => {
   const { ledgerId } = useParams();
@@ -8,6 +10,7 @@ const AddEntry = () => {
   const [schemas, setSchemas] = useState([]);
   const [selectedSchema, setSelectedSchema] = useState(null);
   const [formData, setFormData] = useState({});
+  const [typeFilter, setTypeFilter] = useState("expense");
 
   useEffect(() => {
     fetchSchemas();
@@ -17,8 +20,14 @@ const AddEntry = () => {
     try {
       const res = await api.get(`/ledgers/${ledgerId}/schemas`);
       setSchemas(res.data);
-      if (res.data.length > 0) {
-        handleSchemaChange(res.data[0]);
+      const expenseSchemas = res.data.filter(s => s.type === "expense");
+      const incomeSchemas = res.data.filter(s => s.type === "income");
+      const defaultType = expenseSchemas.length > 0 ? "expense" : (incomeSchemas.length > 0 ? "income" : "expense");
+      setTypeFilter(defaultType);
+      
+      const defaultList = defaultType === "expense" ? expenseSchemas : incomeSchemas;
+      if (defaultList.length > 0) {
+        handleSchemaChange(defaultList[0]);
       }
     } catch (err) {
       console.error(err);
@@ -52,11 +61,29 @@ const AddEntry = () => {
         schema_id: selectedSchema.id,
         data: formData
       });
-      navigate(`/ledgers/${ledgerId}`);
+      if (typeFilter === "income") {
+        navigate(`/ledgers/${ledgerId}`, { state: { showIncomeConfetti: true } });
+      } else {
+        navigate(`/ledgers/${ledgerId}`);
+      }
     } catch (err) {
       console.error(err);
     }
   };
+
+  const handleTypeToggle = (type) => {
+    setTypeFilter(type);
+    const filtered = schemas.filter(s => s.type === type);
+    if (filtered.length > 0) {
+      handleSchemaChange(filtered[0]);
+    } else {
+      setSelectedSchema(null);
+      setFormData({});
+    }
+  };
+
+  const filteredSchemas = schemas.filter(s => s.type === typeFilter);
+
 
   return (
     <div className="max-w-2xl mx-auto py-8">
@@ -72,20 +99,48 @@ const AddEntry = () => {
         </div>
       ) : (
         <div className="glass-card p-8 shadow-2xl">
-          <div className="mb-6 pb-6 border-b border-slate-100">
-            <label className="block text-sm font-medium text-slate-500 mb-2">Select Template</label>
-            <select 
-              className="input-field max-w-xs font-semibold text-brand-600 border-brand-200 focus:border-brand-500 focus:ring-brand-500 bg-brand-50"
-              value={selectedSchema?.id}
-              onChange={(e) => {
-                const schema = schemas.find(s => s.id === e.target.value);
-                handleSchemaChange(schema);
-              }}
-            >
-              {schemas.map(s => (
-                <option key={s.id} value={s.id}>{s.name} ({s.type})</option>
-              ))}
-            </select>
+          <div className="mb-6 pb-6 border-b border-slate-100 flex flex-col gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-500 mb-2">Entry Type</label>
+              <div className="flex bg-slate-100 p-1 rounded-lg w-fit">
+                <button 
+                  type="button" 
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${typeFilter === 'expense' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500 hover:text-slate-700'}`}
+                  onClick={() => handleTypeToggle('expense')}
+                >
+                  Expense
+                </button>
+                <button 
+                  type="button" 
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${typeFilter === 'income' ? 'bg-white shadow-sm text-green-600' : 'text-slate-500 hover:text-slate-700'}`}
+                  onClick={() => handleTypeToggle('income')}
+                >
+                  Income
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-500 mb-2">Select Template</label>
+              {filteredSchemas.length === 0 ? (
+                <div className="text-sm text-slate-500 italic p-3 bg-slate-50 rounded-lg border border-slate-100 border-dashed">
+                  No {typeFilter} schemas available. 
+                </div>
+              ) : (
+                <select 
+                  className="input-field max-w-xs font-semibold text-brand-600 border-brand-200 focus:border-brand-500 focus:ring-brand-500 bg-brand-50"
+                  value={selectedSchema?.id || ""}
+                  onChange={(e) => {
+                    const schema = schemas.find(s => s.id === e.target.value);
+                    handleSchemaChange(schema);
+                  }}
+                >
+                  {filteredSchemas.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -123,10 +178,12 @@ const AddEntry = () => {
               </div>
             ))}
             
-            <button type="submit" className="btn-primary w-full mt-8 py-3 text-lg relative overflow-hidden group">
-              <span className="relative z-10">Save Entry</span>
-              <div className="absolute inset-0 bg-white/20 transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300"></div>
-            </button>
+            {selectedSchema && (
+              <button type="submit" className="btn-primary w-full mt-8 py-3 text-lg relative overflow-hidden group">
+                <span className="relative z-10">Save {typeFilter.charAt(0).toUpperCase() + typeFilter.slice(1)}</span>
+                <div className={`absolute inset-0 opacity-20 transform -translate-x-full group-hover:translate-x-0 transition-transform duration-300 ${typeFilter === 'income' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              </button>
+            )}
           </form>
         </div>
       )}

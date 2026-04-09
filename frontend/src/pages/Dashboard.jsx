@@ -38,9 +38,15 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto py-8">
-      <div className="flex justify-between items-center mb-8">
-        <div>
+    <div 
+      className="-m-4 md:-m-8 px-4 py-8 md:p-8 min-h-screen bg-cover bg-center bg-fixed relative"
+      style={{ backgroundImage: "url('/home-bg.jpg')" }}
+    >
+      <div className="absolute inset-0 bg-slate-50/85 backdrop-blur-sm"></div>
+      
+      <div className="max-w-5xl mx-auto relative z-10">
+        <div className="flex justify-between items-center mb-8">
+          <div>
           <h1 className="text-3xl font-bold text-slate-800">Hello, {user.name}</h1>
           <p className="text-slate-500">Manage your custom ledgers below</p>
         </div>
@@ -115,6 +121,7 @@ const Dashboard = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

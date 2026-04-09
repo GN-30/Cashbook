@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "../api";
-import { Plus, Trash2, CheckSquare, RefreshCw } from "lucide-react";
+import { Plus, Trash2, CheckSquare, RefreshCw, Edit2 } from "lucide-react";
 
 const SchemaBuilder = () => {
   const { ledgerId } = useParams();
@@ -9,6 +9,7 @@ const SchemaBuilder = () => {
   const [schemas, setSchemas] = useState([]);
   
   // New Schema State
+  const [editingSchemaId, setEditingSchemaId] = useState(null);
   const [schemaName, setSchemaName] = useState("");
   const [schemaType, setSchemaType] = useState("expense");
   const [fields, setFields] = useState([
@@ -62,14 +63,23 @@ const SchemaBuilder = () => {
       // Process options string into array for dropdowns
       const processedFields = fields.map(f => ({
         ...f,
-        options: f.type === 'dropdown' ? f.options.split(',').map(s => s.trim()) : []
+        options: f.type === 'dropdown' ? (typeof f.options === 'string' ? f.options.split(',').map(s => s.trim()) : f.options) : []
       }));
 
-      await api.post(`/ledgers/${ledgerId}/schemas`, {
-        name: schemaName,
-        type: schemaType,
-        fields: processedFields
-      });
+      if (editingSchemaId) {
+        await api.put(`/ledgers/${ledgerId}/schemas/${editingSchemaId}`, {
+          name: schemaName,
+          type: schemaType,
+          fields: processedFields
+        });
+        setEditingSchemaId(null);
+      } else {
+        await api.post(`/ledgers/${ledgerId}/schemas`, {
+          name: schemaName,
+          type: schemaType,
+          fields: processedFields
+        });
+      }
 
       setSchemaName("");
       setFields([{ id: Date.now().toString(), name: "Description", type: "text", options: "", isAmount: false }]);
@@ -77,6 +87,28 @@ const SchemaBuilder = () => {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleEditClick = (schema) => {
+    setEditingSchemaId(schema.id);
+    setSchemaName(schema.name);
+    setSchemaType(schema.type);
+    
+    // Transform options back to string for the input field
+    const hydratedFields = schema.fields.map(f => ({
+      ...f,
+      id: f.id || Date.now().toString() + Math.random().toString(), // fallback if missing
+      options: f.type === 'dropdown' && Array.isArray(f.options) ? f.options.join(', ') : f.options
+    }));
+    
+    setFields(hydratedFields.length > 0 ? hydratedFields : [{ id: Date.now().toString(), name: "Description", type: "text", options: "", isAmount: false }]);
+  };
+  
+  const cancelEdit = () => {
+    setEditingSchemaId(null);
+    setSchemaName("");
+    setSchemaType("expense");
+    setFields([{ id: Date.now().toString(), name: "Description", type: "text", options: "", isAmount: false }]);
   };
 
   return (
@@ -90,7 +122,7 @@ const SchemaBuilder = () => {
       <div className="grid md:grid-cols-2 gap-8">
         <div className="glass-card p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-            <Plus size={20} className="text-brand-500" /> Create New Schema
+            <Plus size={20} className="text-brand-500" /> {editingSchemaId ? "Edit Schema Template" : "Create New Schema"}
           </h2>
           <form onSubmit={handleSaveSchema}>
             <div className="grid grid-cols-2 gap-4 mb-4">
@@ -186,9 +218,16 @@ const SchemaBuilder = () => {
               </button>
             </div>
 
-            <button type="submit" className="btn-primary w-full mt-6 bg-slate-800 hover:bg-slate-900 border-none">
-              Save Schema Template
-            </button>
+            <div className="flex gap-3 mt-6">
+              {editingSchemaId && (
+                <button type="button" onClick={cancelEdit} className="btn-secondary flex-1">
+                  Cancel
+                </button>
+              )}
+              <button type="submit" className={`btn-primary flex-[2] bg-slate-800 hover:bg-slate-900 border-none ${editingSchemaId ? 'bg-indigo-600 hover:bg-indigo-700' : ''}`}>
+                {editingSchemaId ? "Update Schema Template" : "Save Schema Template"}
+              </button>
+            </div>
           </form>
         </div>
 
@@ -204,8 +243,15 @@ const SchemaBuilder = () => {
               {schemas.map(s => (
                 <div key={s.id} className="border border-slate-200 rounded-xl p-4 bg-white/50 shadow-sm relative overflow-hidden group">
                   <div className={`absolute top-0 left-0 w-1 h-full ${s.type === 'income' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                  <h3 className="font-bold text-slate-800 ml-2">{s.name}</h3>
-                  <p className="text-xs text-slate-500 ml-2 mb-3 mt-1 uppercase font-semibold">{s.type}</p>
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h3 className="font-bold text-slate-800 ml-2">{s.name}</h3>
+                      <p className="text-xs text-slate-500 ml-2 uppercase font-semibold">{s.type}</p>
+                    </div>
+                    <button onClick={() => handleEditClick(s)} className="text-brand-500 hover:text-brand-700 bg-brand-50 hover:bg-brand-100 p-1.5 rounded-md transition-colors mr-2">
+                      <Edit2 size={16} />
+                    </button>
+                  </div>
                   
                   <div className="ml-2 flex flex-wrap gap-2">
                     {s.fields.map((f, i) => (

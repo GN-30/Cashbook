@@ -1,15 +1,29 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../api";
-import { Plus, Settings, TrendingUp, TrendingDown, Trash2 } from "lucide-react";
+import { Plus, Settings, TrendingUp, TrendingDown, Trash2, Download } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { useLocation } from "react-router-dom";
+import Confetti from "react-confetti";
+import { useWindowSize } from "react-use";
 
 const LedgerView = () => {
   const { ledgerId } = useParams();
+  const location = useLocation();
   const [ledger, setLedger] = useState(null);
   const [entries, setEntries] = useState([]);
   const [schemas, setSchemas] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const { width, height } = useWindowSize();
+
+  useEffect(() => {
+    if (location.state?.showIncomeConfetti) {
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 3000);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   useEffect(() => {
     fetchData();
@@ -47,6 +61,28 @@ const LedgerView = () => {
     }
   };
 
+  const handleDownloadCSV = () => {
+    if (entries.length === 0) return alert("No entries to download.");
+
+    const headers = ["Date", "Schema", "Type", "Details"];
+    const rows = entries.map(entry => {
+      const date = new Date(entry.created_at).toLocaleDateString();
+      const schemaName = entry.schema_name;
+      const type = entry.schema_type;
+      const details = Object.entries(entry.data).map(([k, v]) => `${k}: ${v}`).join(" | ");
+      return `"${date}","${schemaName}","${type}","${details}"`;
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${ledger?.name || 'ledger'}_transactions.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading) return <div className="p-8 text-center">Loading...</div>;
 
   // Calculate stats based on 'isAmount' field in schema
@@ -73,8 +109,14 @@ const LedgerView = () => {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto py-8">
-      <div className="flex justify-between items-end mb-8">
+    <>
+      {showConfetti && (
+        <div className="fixed inset-0 z-50 pointer-events-none">
+          <Confetti width={width} height={height} recycle={false} numberOfPieces={500} gravity={0.2} />
+        </div>
+      )}
+      <div className="max-w-6xl mx-auto py-8">
+        <div className="flex justify-between items-end mb-8">
         <div>
           <Link to="/dashboard" className="text-brand-600 hover:underline mb-2 inline-block">&larr; Back to Dashboard</Link>
           <h1 className="text-3xl font-bold text-slate-800">{ledger?.name || "Loading..."}</h1>
@@ -120,7 +162,16 @@ const LedgerView = () => {
 
       <div className="grid md:grid-cols-3 gap-8">
         <div className="md:col-span-2 glass-card p-6">
-          <h2 className="text-xl font-bold mb-4">Transaction History</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold">Transaction History</h2>
+            <button 
+              onClick={handleDownloadCSV} 
+              disabled={entries.length === 0}
+              className="text-sm font-medium text-brand-600 hover:text-brand-800 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed bg-brand-50 hover:bg-brand-100 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Download size={16} /> Export CSV
+            </button>
+          </div>
           {entries.length === 0 ? (
             <div className="text-center py-10 text-slate-500">
               No entries found. Make sure you have created a schema first, then add an entry.
@@ -184,6 +235,7 @@ const LedgerView = () => {
         </div>
       </div>
     </div>
+    </>
   );
 };
 

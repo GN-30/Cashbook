@@ -68,6 +68,24 @@ router.post("/:ledgerId/schemas", async (req, res) => {
   }
 });
 
+// Update a schema
+router.put("/:ledgerId/schemas/:id", async (req, res) => {
+  const { name, type, fields } = req.body;
+  try {
+    const updatedSchema = await db.query(
+      "UPDATE schemas SET name = $1, type = $2, fields = $3 WHERE id = $4 AND ledger_id = $5 RETURNING *",
+      [name, type, JSON.stringify(fields), req.params.id, req.params.ledgerId]
+    );
+    if (updatedSchema.rows.length === 0) {
+      return res.status(404).json({ error: "Schema not found" });
+    }
+    res.json(updatedSchema.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // --- ENTRIES ---
 
 // Get entries for a ledger
