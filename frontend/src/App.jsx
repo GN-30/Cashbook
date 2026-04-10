@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
+import PWAInstallPrompt from "./components/PWAInstallPrompt";
 
 // Pages
 import Login from "./pages/Login";
@@ -15,6 +16,7 @@ function App() {
     <Router>
       <AuthProvider>
         <div className="min-h-screen bg-slate-50 text-slate-900 font-sans p-4 md:p-8">
+          <PWAInstallPrompt />
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" />} />
             <Route path="/login" element={<Login />} />
