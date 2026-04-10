@@ -61,43 +61,70 @@ const LedgerView = () => {
     }
   };
 
-  const handleDownloadCSV = () => {
-    if (entries.length === 0) return alert("No entries to download.");
+  const buildAndDownloadCSV = (filteredEntries, type, fieldNames) => {
+    if (filteredEntries.length === 0) return;
 
-    // Collect all unique field names from all schemas (preserving order)
-    const allFieldNames = [];
-    schemas.forEach(schema => {
-      (schema.fields || []).forEach(field => {
-        if (!allFieldNames.includes(field.name)) {
-          allFieldNames.push(field.name);
-        }
-      });
-    });
+    const headers = ["Date", "Schema", ...fieldNames];
 
-    // Build header row: fixed columns + one column per schema field
-    const headers = ["Date", "Schema", "Type", ...allFieldNames];
-
-    const rows = entries.map(entry => {
+    const rows = filteredEntries.map(entry => {
       const date = new Date(entry.created_at).toLocaleDateString();
       const schemaName = entry.schema_name;
-      const type = entry.schema_type;
-      // For each field, get its value from entry.data (or empty string if not present)
-      const fieldValues = allFieldNames.map(fieldName => {
+      const fieldValues = fieldNames.map(fieldName => {
         const val = entry.data[fieldName] !== undefined ? entry.data[fieldName] : "";
-        // Escape double quotes by doubling them, then wrap in quotes
         return `"${String(val).replace(/"/g, '""')}"`;
       });
-      return [`"${date}"`, `"${schemaName}"`, `"${type}"`, ...fieldValues].join(",");
+      return [`"${date}"`, `"${schemaName}"`, ...fieldValues].join(",");
     });
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.map(h => `"${h}"`).join(","), ...rows].join("\n");
-    const encodedUri = encodeURI(csvContent);
+    const csvString = [headers.map(h => `"${h}"`).join(","), ...rows].join("\n");
+
+    // Use Blob + createObjectURL — works on mobile browsers (iOS/Android)
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `${ledger?.name || 'ledger'}_transactions.csv`);
+    link.href = url;
+    link.setAttribute("download", `${ledger?.name || 'ledger'}_${type}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url); // free memory
+  };
+
+  const handleDownloadCSV = () => {
+    if (entries.length === 0) return alert("No entries to download.");
+
+    const incomeEntries = entries.filter(e => e.schema_type === "income");
+    const expenseEntries = entries.filter(e => e.schema_type === "expense");
+
+    if (incomeEntries.length === 0 && expenseEntries.length === 0) {
+      return alert("No entries to download.");
+    }
+
+    // Collect field names only from income schemas
+    const incomeFieldNames = [];
+    schemas
+      .filter(s => s.type === "income")
+      .forEach(schema => {
+        (schema.fields || []).forEach(field => {
+          if (!incomeFieldNames.includes(field.name)) incomeFieldNames.push(field.name);
+        });
+      });
+
+    // Collect field names only from expense schemas
+    const expenseFieldNames = [];
+    schemas
+      .filter(s => s.type === "expense")
+      .forEach(schema => {
+        (schema.fields || []).forEach(field => {
+          if (!expenseFieldNames.includes(field.name)) expenseFieldNames.push(field.name);
+        });
+      });
+
+    // Download income CSV (with a small delay so both files trigger properly)
+    buildAndDownloadCSV(incomeEntries, "income", incomeFieldNames);
+    setTimeout(() => {
+      buildAndDownloadCSV(expenseEntries, "expense", expenseFieldNames);
+    }, 300);
   };
 
   if (loading) return <div className="p-8 text-center">Loading...</div>;
