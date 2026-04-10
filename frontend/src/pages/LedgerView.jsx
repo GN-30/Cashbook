@@ -64,16 +64,33 @@ const LedgerView = () => {
   const handleDownloadCSV = () => {
     if (entries.length === 0) return alert("No entries to download.");
 
-    const headers = ["Date", "Schema", "Type", "Details"];
+    // Collect all unique field names from all schemas (preserving order)
+    const allFieldNames = [];
+    schemas.forEach(schema => {
+      (schema.fields || []).forEach(field => {
+        if (!allFieldNames.includes(field.name)) {
+          allFieldNames.push(field.name);
+        }
+      });
+    });
+
+    // Build header row: fixed columns + one column per schema field
+    const headers = ["Date", "Schema", "Type", ...allFieldNames];
+
     const rows = entries.map(entry => {
       const date = new Date(entry.created_at).toLocaleDateString();
       const schemaName = entry.schema_name;
       const type = entry.schema_type;
-      const details = Object.entries(entry.data).map(([k, v]) => `${k}: ${v}`).join(" | ");
-      return `"${date}","${schemaName}","${type}","${details}"`;
+      // For each field, get its value from entry.data (or empty string if not present)
+      const fieldValues = allFieldNames.map(fieldName => {
+        const val = entry.data[fieldName] !== undefined ? entry.data[fieldName] : "";
+        // Escape double quotes by doubling them, then wrap in quotes
+        return `"${String(val).replace(/"/g, '""')}"`;
+      });
+      return [`"${date}"`, `"${schemaName}"`, `"${type}"`, ...fieldValues].join(",");
     });
 
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.map(h => `"${h}"`).join(","), ...rows].join("\n");
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
