@@ -61,7 +61,7 @@ const LedgerView = () => {
     }
   };
 
-  const buildAndDownloadCSV = (filteredEntries, type, fieldNames) => {
+  const buildAndDownloadCSV = (filteredEntries, type, fieldNames, summary) => {
     if (filteredEntries.length === 0) return;
 
     const headers = ["Date", "Schema", ...fieldNames];
@@ -76,7 +76,21 @@ const LedgerView = () => {
       return [`"${date}"`, `"${schemaName}"`, ...fieldValues].join(",");
     });
 
-    const csvString = [headers.map(h => `"${h}"`).join(","), ...rows].join("\n");
+    // Summary rows appended at the bottom
+    const blankRow = "";
+    const summaryRows = [
+      blankRow,
+      `"--- Summary ---"`,
+      `"Total Income","${summary.totalIncome.toFixed(2)}"`,
+      `"Total Expense","${summary.totalExpense.toFixed(2)}"`,
+      `"Total Balance","${summary.balance.toFixed(2)}"`,
+    ];
+
+    const csvString = [
+      headers.map(h => `"${h}"`).join(","),
+      ...rows,
+      ...summaryRows
+    ].join("\n");
 
     // Use Blob + createObjectURL — works on mobile browsers (iOS/Android)
     const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
@@ -100,6 +114,21 @@ const LedgerView = () => {
       return alert("No entries to download.");
     }
 
+    // Calculate totals using the isAmount field from each schema
+    let totalIncome = 0;
+    let totalExpense = 0;
+    entries.forEach(entry => {
+      const schema = schemas.find(s => s.id === entry.schema_id);
+      if (!schema) return;
+      const amountField = schema.fields.find(f => f.isAmount);
+      if (amountField && entry.data[amountField.name]) {
+        const val = parseFloat(entry.data[amountField.name]) || 0;
+        if (schema.type === "income") totalIncome += val;
+        if (schema.type === "expense") totalExpense += val;
+      }
+    });
+    const summary = { totalIncome, totalExpense, balance: totalIncome - totalExpense };
+
     // Collect field names only from income schemas
     const incomeFieldNames = [];
     schemas
@@ -121,9 +150,9 @@ const LedgerView = () => {
       });
 
     // Download income CSV (with a small delay so both files trigger properly)
-    buildAndDownloadCSV(incomeEntries, "income", incomeFieldNames);
+    buildAndDownloadCSV(incomeEntries, "income", incomeFieldNames, summary);
     setTimeout(() => {
-      buildAndDownloadCSV(expenseEntries, "expense", expenseFieldNames);
+      buildAndDownloadCSV(expenseEntries, "expense", expenseFieldNames, summary);
     }, 300);
   };
 
