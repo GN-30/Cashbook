@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../api";
-import { Plus, Settings, TrendingUp, TrendingDown, Trash2, Download } from "lucide-react";
+import { Plus, Settings, TrendingUp, TrendingDown, Trash2, Download, FileText } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { useLocation } from "react-router-dom";
 import Confetti from "react-confetti";
 import { useWindowSize } from "react-use";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const LedgerView = () => {
   const { ledgerId } = useParams();
@@ -31,7 +33,6 @@ const LedgerView = () => {
 
   const fetchData = async () => {
     try {
-      // Find current ledger name (We can pass it via state, or fetch, but since we don't have a specific getLedger route, let's fetch all and filter)
       const ledgerRes = await api.get("/ledgers");
       const current = ledgerRes.data.find(l => l.id === ledgerId);
       setLedger(current);
@@ -61,6 +62,7 @@ const LedgerView = () => {
     }
   };
 
+  // ─── CSV Export ──────────────────────────────────────────────────────────────
   const buildAndDownloadCSV = (filteredEntries, type, fieldNames, summary) => {
     if (filteredEntries.length === 0) return;
 
@@ -76,7 +78,6 @@ const LedgerView = () => {
       return [`"${date}"`, `"${schemaName}"`, ...fieldValues].join(",");
     });
 
-    // Summary rows appended at the bottom
     const blankRow = "";
     const summaryRows = [
       blankRow,
@@ -92,7 +93,6 @@ const LedgerView = () => {
       ...summaryRows
     ].join("\n");
 
-    // Use Blob + createObjectURL — works on mobile browsers (iOS/Android)
     const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -101,7 +101,7 @@ const LedgerView = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url); // free memory
+    URL.revokeObjectURL(url);
   };
 
   const handleDownloadCSV = () => {
@@ -114,7 +114,6 @@ const LedgerView = () => {
       return alert("No entries to download.");
     }
 
-    // Calculate totals using the isAmount field from each schema
     let totalIncome = 0;
     let totalExpense = 0;
     entries.forEach(entry => {
@@ -129,31 +128,229 @@ const LedgerView = () => {
     });
     const summary = { totalIncome, totalExpense, balance: totalIncome - totalExpense };
 
-    // Collect field names only from income schemas
     const incomeFieldNames = [];
-    schemas
-      .filter(s => s.type === "income")
-      .forEach(schema => {
-        (schema.fields || []).forEach(field => {
-          if (!incomeFieldNames.includes(field.name)) incomeFieldNames.push(field.name);
-        });
+    schemas.filter(s => s.type === "income").forEach(schema => {
+      (schema.fields || []).forEach(field => {
+        if (!incomeFieldNames.includes(field.name)) incomeFieldNames.push(field.name);
       });
+    });
 
-    // Collect field names only from expense schemas
     const expenseFieldNames = [];
-    schemas
-      .filter(s => s.type === "expense")
-      .forEach(schema => {
-        (schema.fields || []).forEach(field => {
-          if (!expenseFieldNames.includes(field.name)) expenseFieldNames.push(field.name);
-        });
+    schemas.filter(s => s.type === "expense").forEach(schema => {
+      (schema.fields || []).forEach(field => {
+        if (!expenseFieldNames.includes(field.name)) expenseFieldNames.push(field.name);
       });
+    });
 
-    // Download income CSV (with a small delay so both files trigger properly)
     buildAndDownloadCSV(incomeEntries, "income", incomeFieldNames, summary);
     setTimeout(() => {
       buildAndDownloadCSV(expenseEntries, "expense", expenseFieldNames, summary);
     }, 300);
+  };
+
+  // ─── PDF Export ──────────────────────────────────────────────────────────────
+  const buildAndDownloadPDF = (filteredEntries, type, fieldNames, summary) => {
+    if (filteredEntries.length === 0) return;
+
+    const ledgerName = ledger?.name || "Ledger";
+    const generatedDate = new Date().toLocaleDateString("en-IN", {
+      day: "2-digit", month: "long", year: "numeric",
+    });
+
+    const isIncome = type === "income";
+
+    // ── colour palette ──
+    const COLORS = {
+      headerBg:     isIncome ? [20, 83, 45]   : [127, 29, 29],   // green-900 / red-900
+      headerText:   [255, 255, 255],
+      accentColor:  isIncome ? [22, 163, 74]  : [220, 38, 38],   // green-600 / red-600
+      accentBg:     isIncome ? [236, 253, 245]: [255, 241, 242],  // green-50 / red-50
+      rowEven:      isIncome ? [240, 253, 244]: [255, 245, 245],  // alternating light tint
+      rowOdd:       [255, 255, 255],
+      amtColor:     isIncome ? [22, 163, 74]  : [220, 38, 38],
+      summaryBg:    [241, 245, 249],
+      border:       [203, 213, 225],
+      mutedText:    [100, 116, 139],
+      darkText:     [30, 41, 59],
+    };
+
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+
+    // ── compute total for this type ──
+    let total = 0;
+    filteredEntries.forEach(entry => {
+      const schema = schemas.find(s => s.id === entry.schema_id);
+      if (!schema) return;
+      const amountField = schema.fields.find(f => f.isAmount);
+      if (amountField && entry.data[amountField.name]) {
+        total += parseFloat(entry.data[amountField.name]) || 0;
+      }
+    });
+
+    // ── header banner ──
+    doc.setFillColor(...COLORS.headerBg);
+    doc.rect(0, 0, pageW, 28, "F");
+
+    doc.setTextColor(...COLORS.headerText);
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    const typeLabel = isIncome ? "Income" : "Expense";
+    doc.text(`${ledgerName} — ${typeLabel} Report`, 14, 11);
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Generated: ${generatedDate}`, 14, 20);
+    doc.text("FlexiLedger", pageW - 14, 20, { align: "right" });
+
+    // ── summary card ──
+    const cardY = 32;
+    const cardH = 16;
+    const cards = [
+      { label: `Total ${typeLabel}`, value: `Rs. ${total.toFixed(2)}` },
+      { label: "Number of Entries",  value: String(filteredEntries.length) },
+    ];
+    const cardW = 68;
+    cards.forEach((card, i) => {
+      const x = 14 + i * (cardW + 6);
+      doc.setFillColor(...COLORS.accentBg);
+      doc.roundedRect(x, cardY, cardW, cardH, 2, 2, "F");
+      doc.setFillColor(...COLORS.accentColor);
+      doc.rect(x, cardY, 3, cardH, "F");
+      doc.setTextColor(...COLORS.mutedText);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.text(card.label, x + 6, cardY + 5.5);
+      doc.setTextColor(...COLORS.accentColor);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text(card.value, x + 6, cardY + 13);
+    });
+
+    // ── table: columns = #, Date, Schema, <field1>, <field2>, … ──
+    const tableY = cardY + cardH + 8;
+
+    // Build headers: fixed columns first, then each schema field name
+    const tableHead = [["#", "Date", "Schema", ...fieldNames]];
+
+    // Build rows
+    const tableBody = filteredEntries.map((entry, idx) => {
+      const dateStr = new Date(entry.created_at).toLocaleDateString("en-IN");
+      const fieldValues = fieldNames.map(fieldName => {
+        const val = entry.data[fieldName];
+        if (val === undefined || val === null || val === "") return "—";
+        // If it's the amount field, prefix Rs.
+        const schema = schemas.find(s => s.id === entry.schema_id);
+        const amountField = schema?.fields.find(f => f.isAmount);
+        if (amountField && amountField.name === fieldName) {
+          return `Rs. ${parseFloat(val).toFixed(2)}`;
+        }
+        return String(val);
+      });
+      return [String(idx + 1), dateStr, entry.schema_name, ...fieldValues];
+    });
+
+    // Detect which column index is the amount field (offset by 3 fixed cols)
+    // We'll colour any column whose fieldName has isAmount = true in any schema
+    const amountFieldNames = new Set(
+      schemas
+        .filter(s => s.type === type)
+        .flatMap(s => s.fields.filter(f => f.isAmount).map(f => f.name))
+    );
+
+    autoTable(doc, {
+      startY: tableY,
+      head: tableHead,
+      body: tableBody,
+      margin: { left: 14, right: 14 },
+      styles: {
+        fontSize: 8,
+        cellPadding: { top: 3, bottom: 3, left: 4, right: 4 },
+        valign: "middle",
+        overflow: "linebreak",
+        lineColor: COLORS.border,
+        lineWidth: 0.2,
+        textColor: COLORS.darkText,
+      },
+      headStyles: {
+        fillColor: COLORS.headerBg,
+        textColor: COLORS.headerText,
+        fontStyle: "bold",
+        fontSize: 8,
+        halign: "left",
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: "center" },
+        1: { cellWidth: 26 },
+        2: { cellWidth: 36 },
+      },
+      didParseCell(data) {
+        if (data.section === "body") {
+          // Alternating row tint
+          data.cell.styles.fillColor =
+            data.row.index % 2 === 0 ? COLORS.rowEven : COLORS.rowOdd;
+
+          // Amount columns — bold + accent colour
+          const colFieldIndex = data.column.index - 3; // offset 3 fixed cols
+          if (colFieldIndex >= 0) {
+            const fieldName = fieldNames[colFieldIndex];
+            if (amountFieldNames.has(fieldName)) {
+              data.cell.styles.textColor = COLORS.amtColor;
+              data.cell.styles.fontStyle = "bold";
+              data.cell.styles.halign = "right";
+            }
+          }
+        }
+      },
+    });
+
+    // ── footer on every page ──
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      const pageH = doc.internal.pageSize.getHeight();
+      doc.setFillColor(...COLORS.headerBg);
+      doc.rect(0, pageH - 10, pageW, 10, "F");
+      doc.setTextColor(...COLORS.headerText);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${ledgerName} — ${typeLabel} Report`, 14, pageH - 4);
+      doc.text(`Page ${p} of ${totalPages}`, pageW - 14, pageH - 4, { align: "right" });
+    }
+
+    doc.save(`${ledgerName}_${type}.pdf`);
+  };
+
+  const handleDownloadPDF = () => {
+    if (entries.length === 0) return alert("No entries to export as PDF.");
+
+    const incomeEntries  = entries.filter(e => e.schema_type === "income");
+    const expenseEntries = entries.filter(e => e.schema_type === "expense");
+
+    if (incomeEntries.length === 0 && expenseEntries.length === 0) {
+      return alert("No entries to export.");
+    }
+
+    // Collect income field names from income schemas
+    const incomeFieldNames = [];
+    schemas.filter(s => s.type === "income").forEach(schema => {
+      (schema.fields || []).forEach(field => {
+        if (!incomeFieldNames.includes(field.name)) incomeFieldNames.push(field.name);
+      });
+    });
+
+    // Collect expense field names from expense schemas
+    const expenseFieldNames = [];
+    schemas.filter(s => s.type === "expense").forEach(schema => {
+      (schema.fields || []).forEach(field => {
+        if (!expenseFieldNames.includes(field.name)) expenseFieldNames.push(field.name);
+      });
+    });
+
+    buildAndDownloadPDF(incomeEntries,  "income",  incomeFieldNames,  {});
+    setTimeout(() => {
+      buildAndDownloadPDF(expenseEntries, "expense", expenseFieldNames, {});
+    }, 400);
   };
 
   if (loading) return <div className="p-8 text-center">Loading...</div>;
@@ -166,7 +363,6 @@ const LedgerView = () => {
     const schema = schemas.find(s => s.id === entry.schema_id);
     if (!schema) return;
 
-    // Find the field that is marked as 'isAmount'
     const amountField = schema.fields.find(f => f.isAmount);
     
     if (amountField && entry.data[amountField.name]) {
@@ -210,13 +406,13 @@ const LedgerView = () => {
         <div className="glass-card p-6 flex flex-col justify-center">
           <p className="text-sm text-slate-500 mb-1">Total Balance</p>
           <p className={`text-4xl font-bold ${totalIncome - totalExpense >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-            ${(totalIncome - totalExpense).toFixed(2)}
+            ₹{(totalIncome - totalExpense).toFixed(2)}
           </p>
         </div>
         <div className="glass-card p-6 flex justify-between items-center">
           <div>
             <p className="text-sm text-slate-500 mb-1">Total Income</p>
-            <p className="text-2xl font-bold text-green-600">${totalIncome.toFixed(2)}</p>
+            <p className="text-2xl font-bold text-green-600">₹{totalIncome.toFixed(2)}</p>
           </div>
           <div className="bg-green-100 p-3 rounded-full text-green-600">
             <TrendingUp size={24} />
@@ -225,7 +421,7 @@ const LedgerView = () => {
         <div className="glass-card p-6 flex justify-between items-center">
           <div>
             <p className="text-sm text-slate-500 mb-1">Total Expense</p>
-            <p className="text-2xl font-bold text-red-500">${totalExpense.toFixed(2)}</p>
+            <p className="text-2xl font-bold text-red-500">₹{totalExpense.toFixed(2)}</p>
           </div>
           <div className="bg-red-100 p-3 rounded-full text-red-500">
             <TrendingDown size={24} />
@@ -237,13 +433,22 @@ const LedgerView = () => {
         <div className="md:col-span-2 glass-card p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold">Transaction History</h2>
-            <button 
-              onClick={handleDownloadCSV} 
-              disabled={entries.length === 0}
-              className="text-sm font-medium text-brand-600 hover:text-brand-800 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed bg-brand-50 hover:bg-brand-100 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <Download size={16} /> Export CSV
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={handleDownloadCSV} 
+                disabled={entries.length === 0}
+                className="text-sm font-medium text-brand-600 hover:text-brand-800 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed bg-brand-50 hover:bg-brand-100 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <Download size={16} /> Export CSV
+              </button>
+              <button 
+                onClick={handleDownloadPDF} 
+                disabled={entries.length === 0}
+                className="text-sm font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                <FileText size={16} /> Export PDF
+              </button>
+            </div>
           </div>
           {entries.length === 0 ? (
             <div className="text-center py-10 text-slate-500">

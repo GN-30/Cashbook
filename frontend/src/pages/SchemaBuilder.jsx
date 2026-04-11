@@ -257,7 +257,7 @@ const SchemaBuilder = () => {
                     {s.fields.map((f, i) => (
                       <span key={i} className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-600 flex items-center gap-1">
                         {f.name} <span className="opacity-50">({f.type})</span>
-                        {f.isAmount && <span title="Accounted Value" className="text-indigo-600 font-bold ml-1">$</span>}
+                        {f.isAmount && <span title="Accounted Value" className="text-indigo-600 font-bold ml-1">₹</span>}
                       </span>
                     ))}
                   </div>
