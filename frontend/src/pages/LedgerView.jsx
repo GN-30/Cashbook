@@ -63,28 +63,66 @@ const LedgerView = () => {
   };
 
   // ─── CSV Export ──────────────────────────────────────────────────────────────
-  const buildAndDownloadCSV = (filteredEntries, type, fieldNames, summary) => {
-    if (filteredEntries.length === 0) return;
+  const handleDownloadCSV = () => {
+    if (entries.length === 0) return alert("No entries to download.");
 
-    const headers = ["Date", "Schema", ...fieldNames];
+    // sort entries chronologically for running balance
+    const chronEntries = [...entries].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
-    const rows = filteredEntries.map(entry => {
-      const date = new Date(entry.created_at).toLocaleDateString();
+    let totalBudget = 0;
+    const enriched = chronEntries.map(entry => {
+      const schema = schemas.find(s => s.id === entry.schema_id);
+      let inc = 0, exp = 0;
+      if (schema) {
+        const amountField = schema.fields.find(f => f.isAmount);
+        if (amountField && entry.data[amountField.name]) {
+          const val = parseFloat(entry.data[amountField.name]) || 0;
+          if (schema.type === "income") inc = val;
+          if (schema.type === "expense") exp = val;
+        }
+      }
+      totalBudget += (inc - exp);
+      return { ...entry, inc, exp, totalBudget };
+    });
+
+    const fieldNames = [];
+    schemas.forEach(schema => {
+      (schema.fields || []).forEach(field => {
+        if (!field.isAmount && !fieldNames.includes(field.name)) {
+          fieldNames.push(field.name);
+        }
+      });
+    });
+
+    const headers = ["Date", "Schema", ...fieldNames, "Income", "Expense", "Total Amount"];
+
+    const rows = enriched.map(entry => {
+      const date = new Date(entry.created_at).toLocaleDateString("en-IN");
       const schemaName = entry.schema_name;
       const fieldValues = fieldNames.map(fieldName => {
         const val = entry.data[fieldName] !== undefined ? entry.data[fieldName] : "";
         return `"${String(val).replace(/"/g, '""')}"`;
       });
-      return [`"${date}"`, `"${schemaName}"`, ...fieldValues].join(",");
+      return [
+        `"${date}"`, 
+        `"${schemaName}"`, 
+        ...fieldValues, 
+        `"${entry.inc.toFixed(2)}"`, 
+        `"${entry.exp.toFixed(2)}"`, 
+        `"${entry.totalBudget.toFixed(2)}"`
+      ].join(",");
     });
 
-    const blankRow = "";
+    const totalIncome = enriched.reduce((sum, e) => sum + e.inc, 0);
+    const totalExpense = enriched.reduce((sum, e) => sum + e.exp, 0);
+    const finalBalance = totalIncome - totalExpense;
+
     const summaryRows = [
-      blankRow,
+      "",
       `"--- Summary ---"`,
-      `"Total Income","${summary.totalIncome.toFixed(2)}"`,
-      `"Total Expense","${summary.totalExpense.toFixed(2)}"`,
-      `"Total Balance","${summary.balance.toFixed(2)}"`,
+      `"Total Income","${totalIncome.toFixed(2)}"`,
+      `"Total Expense","${totalExpense.toFixed(2)}"`,
+      `"Final Balance","${finalBalance.toFixed(2)}"`,
     ];
 
     const csvString = [
@@ -97,78 +135,59 @@ const LedgerView = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `${ledger?.name || 'ledger'}_${type}.csv`);
+    link.setAttribute("download", `${ledger?.name || 'ledger'}_Report.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
-  const handleDownloadCSV = () => {
-    if (entries.length === 0) return alert("No entries to download.");
-
-    const incomeEntries = entries.filter(e => e.schema_type === "income");
-    const expenseEntries = entries.filter(e => e.schema_type === "expense");
-
-    if (incomeEntries.length === 0 && expenseEntries.length === 0) {
-      return alert("No entries to download.");
-    }
-
-    let totalIncome = 0;
-    let totalExpense = 0;
-    entries.forEach(entry => {
-      const schema = schemas.find(s => s.id === entry.schema_id);
-      if (!schema) return;
-      const amountField = schema.fields.find(f => f.isAmount);
-      if (amountField && entry.data[amountField.name]) {
-        const val = parseFloat(entry.data[amountField.name]) || 0;
-        if (schema.type === "income") totalIncome += val;
-        if (schema.type === "expense") totalExpense += val;
-      }
-    });
-    const summary = { totalIncome, totalExpense, balance: totalIncome - totalExpense };
-
-    const incomeFieldNames = [];
-    schemas.filter(s => s.type === "income").forEach(schema => {
-      (schema.fields || []).forEach(field => {
-        if (!incomeFieldNames.includes(field.name)) incomeFieldNames.push(field.name);
-      });
-    });
-
-    const expenseFieldNames = [];
-    schemas.filter(s => s.type === "expense").forEach(schema => {
-      (schema.fields || []).forEach(field => {
-        if (!expenseFieldNames.includes(field.name)) expenseFieldNames.push(field.name);
-      });
-    });
-
-    buildAndDownloadCSV(incomeEntries, "income", incomeFieldNames, summary);
-    setTimeout(() => {
-      buildAndDownloadCSV(expenseEntries, "expense", expenseFieldNames, summary);
-    }, 300);
-  };
-
   // ─── PDF Export ──────────────────────────────────────────────────────────────
-  const buildAndDownloadPDF = (filteredEntries, type, fieldNames, summary) => {
-    if (filteredEntries.length === 0) return;
+  const handleDownloadPDF = () => {
+    if (entries.length === 0) return alert("No entries to export as PDF.");
+
+    const chronEntries = [...entries].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+    let totalBudget = 0;
+    const enriched = chronEntries.map(entry => {
+      const schema = schemas.find(s => s.id === entry.schema_id);
+      let inc = 0, exp = 0;
+      if (schema) {
+        const amountField = schema.fields.find(f => f.isAmount);
+        if (amountField && entry.data[amountField.name]) {
+          const val = parseFloat(entry.data[amountField.name]) || 0;
+          if (schema.type === "income") inc = val;
+          if (schema.type === "expense") exp = val;
+        }
+      }
+      totalBudget += (inc - exp);
+      return { ...entry, inc, exp, totalBudget };
+    });
+
+    const fieldNames = [];
+    schemas.forEach(schema => {
+      (schema.fields || []).forEach(field => {
+        if (!field.isAmount && !fieldNames.includes(field.name)) {
+          fieldNames.push(field.name);
+        }
+      });
+    });
 
     const ledgerName = ledger?.name || "Ledger";
     const generatedDate = new Date().toLocaleDateString("en-IN", {
       day: "2-digit", month: "long", year: "numeric",
     });
 
-    const isIncome = type === "income";
-
-    // ── colour palette ──
     const COLORS = {
-      headerBg:     isIncome ? [20, 83, 45]   : [127, 29, 29],   // green-900 / red-900
+      headerBg:     [30, 64, 175],   // blue-800
       headerText:   [255, 255, 255],
-      accentColor:  isIncome ? [22, 163, 74]  : [220, 38, 38],   // green-600 / red-600
-      accentBg:     isIncome ? [236, 253, 245]: [255, 241, 242],  // green-50 / red-50
-      rowEven:      isIncome ? [240, 253, 244]: [255, 245, 245],  // alternating light tint
+      accentColor:  [37, 99, 235],   // blue-600
+      accentBg:     [239, 246, 255], // blue-50
+      rowEven:      [248, 250, 252], // slate-50
       rowOdd:       [255, 255, 255],
-      amtColor:     isIncome ? [22, 163, 74]  : [220, 38, 38],
-      summaryBg:    [241, 245, 249],
+      incomeColor:  [22, 163, 74],   // green-600
+      expenseColor: [220, 38, 38],   // red-600
+      totalColor:   [15, 23, 42],    // slate-900
       border:       [203, 213, 225],
       mutedText:    [100, 116, 139],
       darkText:     [30, 41, 59],
@@ -177,86 +196,67 @@ const LedgerView = () => {
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const pageW = doc.internal.pageSize.getWidth();
 
-    // ── compute total for this type ──
-    let total = 0;
-    filteredEntries.forEach(entry => {
-      const schema = schemas.find(s => s.id === entry.schema_id);
-      if (!schema) return;
-      const amountField = schema.fields.find(f => f.isAmount);
-      if (amountField && entry.data[amountField.name]) {
-        total += parseFloat(entry.data[amountField.name]) || 0;
-      }
-    });
+    const totalIncome = enriched.reduce((sum, e) => sum + e.inc, 0);
+    const totalExpense = enriched.reduce((sum, e) => sum + e.exp, 0);
+    const finalBalance = totalIncome - totalExpense;
 
-    // ── header banner ──
     doc.setFillColor(...COLORS.headerBg);
     doc.rect(0, 0, pageW, 28, "F");
 
     doc.setTextColor(...COLORS.headerText);
     doc.setFontSize(16);
     doc.setFont("helvetica", "bold");
-    const typeLabel = isIncome ? "Income" : "Expense";
-    doc.text(`${ledgerName} — ${typeLabel} Report`, 14, 11);
+    doc.text(`${ledgerName} — Consolidated Report`, 14, 11);
 
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
     doc.text(`Generated: ${generatedDate}`, 14, 20);
     doc.text("FlexiLedger", pageW - 14, 20, { align: "right" });
 
-    // ── summary card ──
     const cardY = 32;
     const cardH = 16;
     const cards = [
-      { label: `Total ${typeLabel}`, value: `Rs. ${total.toFixed(2)}` },
-      { label: "Number of Entries",  value: String(filteredEntries.length) },
+      { label: "Total Income", value: `Rs. ${totalIncome.toFixed(2)}`, color: COLORS.incomeColor },
+      { label: "Total Expense", value: `Rs. ${totalExpense.toFixed(2)}`, color: COLORS.expenseColor },
+      { label: "Net Balance", value: `Rs. ${finalBalance.toFixed(2)}`, color: COLORS.totalColor },
+      { label: "Total Entries",  value: String(enriched.length), color: COLORS.accentColor },
     ];
-    const cardW = 68;
+    const cardW = 55;
     cards.forEach((card, i) => {
       const x = 14 + i * (cardW + 6);
       doc.setFillColor(...COLORS.accentBg);
       doc.roundedRect(x, cardY, cardW, cardH, 2, 2, "F");
-      doc.setFillColor(...COLORS.accentColor);
+      doc.setFillColor(...card.color);
       doc.rect(x, cardY, 3, cardH, "F");
       doc.setTextColor(...COLORS.mutedText);
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
       doc.text(card.label, x + 6, cardY + 5.5);
-      doc.setTextColor(...COLORS.accentColor);
+      doc.setTextColor(...card.color);
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.text(card.value, x + 6, cardY + 13);
     });
 
-    // ── table: columns = #, Date, Schema, <field1>, <field2>, … ──
     const tableY = cardY + cardH + 8;
+    const tableHead = [["#", "Date", "Schema", ...fieldNames, "Income", "Expense", "Total Amount"]];
 
-    // Build headers: fixed columns first, then each schema field name
-    const tableHead = [["#", "Date", "Schema", ...fieldNames]];
-
-    // Build rows
-    const tableBody = filteredEntries.map((entry, idx) => {
+    const tableBody = enriched.map((entry, idx) => {
       const dateStr = new Date(entry.created_at).toLocaleDateString("en-IN");
       const fieldValues = fieldNames.map(fieldName => {
         const val = entry.data[fieldName];
-        if (val === undefined || val === null || val === "") return "—";
-        // If it's the amount field, prefix Rs.
-        const schema = schemas.find(s => s.id === entry.schema_id);
-        const amountField = schema?.fields.find(f => f.isAmount);
-        if (amountField && amountField.name === fieldName) {
-          return `Rs. ${parseFloat(val).toFixed(2)}`;
-        }
-        return String(val);
+        return (val === undefined || val === null || val === "") ? "—" : String(val);
       });
-      return [String(idx + 1), dateStr, entry.schema_name, ...fieldValues];
+      return [
+        String(idx + 1), 
+        dateStr, 
+        entry.schema_name, 
+        ...fieldValues,
+        entry.inc > 0 ? `Rs. ${entry.inc.toFixed(2)}` : "—",
+        entry.exp > 0 ? `Rs. ${entry.exp.toFixed(2)}` : "—",
+        `Rs. ${entry.totalBudget.toFixed(2)}`
+      ];
     });
-
-    // Detect which column index is the amount field (offset by 3 fixed cols)
-    // We'll colour any column whose fieldName has isAmount = true in any schema
-    const amountFieldNames = new Set(
-      schemas
-        .filter(s => s.type === type)
-        .flatMap(s => s.fields.filter(f => f.isAmount).map(f => f.name))
-    );
 
     autoTable(doc, {
       startY: tableY,
@@ -286,25 +286,28 @@ const LedgerView = () => {
       },
       didParseCell(data) {
         if (data.section === "body") {
-          // Alternating row tint
-          data.cell.styles.fillColor =
-            data.row.index % 2 === 0 ? COLORS.rowEven : COLORS.rowOdd;
+          data.cell.styles.fillColor = data.row.index % 2 === 0 ? COLORS.rowEven : COLORS.rowOdd;
 
-          // Amount columns — bold + accent colour
-          const colFieldIndex = data.column.index - 3; // offset 3 fixed cols
-          if (colFieldIndex >= 0) {
-            const fieldName = fieldNames[colFieldIndex];
-            if (amountFieldNames.has(fieldName)) {
-              data.cell.styles.textColor = COLORS.amtColor;
-              data.cell.styles.fontStyle = "bold";
-              data.cell.styles.halign = "right";
-            }
+          const colIndex = data.column.index;
+          const totalCols = tableHead[0].length;
+
+          if (colIndex === totalCols - 3) { // Income
+            data.cell.styles.textColor = COLORS.incomeColor;
+            data.cell.styles.halign = "right";
+            data.cell.styles.fontStyle = "bold";
+          } else if (colIndex === totalCols - 2) { // Expense
+            data.cell.styles.textColor = COLORS.expenseColor;
+            data.cell.styles.halign = "right";
+            data.cell.styles.fontStyle = "bold";
+          } else if (colIndex === totalCols - 1) { // Total Amount
+            data.cell.styles.textColor = COLORS.totalColor;
+            data.cell.styles.fontStyle = "bold";
+            data.cell.styles.halign = "right";
           }
         }
       },
     });
 
-    // ── footer on every page ──
     const totalPages = doc.getNumberOfPages();
     for (let p = 1; p <= totalPages; p++) {
       doc.setPage(p);
@@ -314,43 +317,11 @@ const LedgerView = () => {
       doc.setTextColor(...COLORS.headerText);
       doc.setFontSize(7);
       doc.setFont("helvetica", "normal");
-      doc.text(`${ledgerName} — ${typeLabel} Report`, 14, pageH - 4);
+      doc.text(`${ledgerName} — Consolidated Report`, 14, pageH - 4);
       doc.text(`Page ${p} of ${totalPages}`, pageW - 14, pageH - 4, { align: "right" });
     }
 
-    doc.save(`${ledgerName}_${type}.pdf`);
-  };
-
-  const handleDownloadPDF = () => {
-    if (entries.length === 0) return alert("No entries to export as PDF.");
-
-    const incomeEntries  = entries.filter(e => e.schema_type === "income");
-    const expenseEntries = entries.filter(e => e.schema_type === "expense");
-
-    if (incomeEntries.length === 0 && expenseEntries.length === 0) {
-      return alert("No entries to export.");
-    }
-
-    // Collect income field names from income schemas
-    const incomeFieldNames = [];
-    schemas.filter(s => s.type === "income").forEach(schema => {
-      (schema.fields || []).forEach(field => {
-        if (!incomeFieldNames.includes(field.name)) incomeFieldNames.push(field.name);
-      });
-    });
-
-    // Collect expense field names from expense schemas
-    const expenseFieldNames = [];
-    schemas.filter(s => s.type === "expense").forEach(schema => {
-      (schema.fields || []).forEach(field => {
-        if (!expenseFieldNames.includes(field.name)) expenseFieldNames.push(field.name);
-      });
-    });
-
-    buildAndDownloadPDF(incomeEntries,  "income",  incomeFieldNames,  {});
-    setTimeout(() => {
-      buildAndDownloadPDF(expenseEntries, "expense", expenseFieldNames, {});
-    }, 400);
+    doc.save(`${ledgerName}_Report.pdf`);
   };
 
   if (loading) return <div className="p-8 text-center">Loading...</div>;
