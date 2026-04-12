@@ -120,27 +120,11 @@ const AddEntry = () => {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-500 mb-2">Select Template</label>
-              {filteredSchemas.length === 0 ? (
-                <div className="text-sm text-slate-500 italic p-3 bg-slate-50 rounded-lg border border-slate-100 border-dashed">
-                  No {typeFilter} schemas available. 
-                </div>
-              ) : (
-                <select 
-                  className="input-field max-w-xs font-semibold text-brand-600 border-brand-200 focus:border-brand-500 focus:ring-brand-500 bg-brand-50"
-                  value={selectedSchema?.id || ""}
-                  onChange={(e) => {
-                    const schema = schemas.find(s => s.id === e.target.value);
-                    handleSchemaChange(schema);
-                  }}
-                >
-                  {filteredSchemas.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              )}
-            </div>
+            {filteredSchemas.length === 0 && (
+              <div className="text-sm text-slate-500 italic p-3 bg-slate-50 rounded-lg border border-slate-100 border-dashed">
+                No {typeFilter} template available. Please configure it in the Schema Builder.
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
