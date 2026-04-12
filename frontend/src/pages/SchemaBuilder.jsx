@@ -10,7 +10,6 @@ const SchemaBuilder = () => {
   
   // New Schema State
   const [editingSchemaId, setEditingSchemaId] = useState(null);
-  const [schemaName, setSchemaName] = useState("");
   const [schemaType, setSchemaType] = useState("expense");
   const [fields, setFields] = useState([
     { id: Date.now().toString(), name: "Description", type: "text", options: "", isAmount: false }
@@ -66,22 +65,22 @@ const SchemaBuilder = () => {
         options: f.type === 'dropdown' ? (typeof f.options === 'string' ? f.options.split(',').map(s => s.trim()) : f.options) : []
       }));
 
+      const derivedName = schemaType.charAt(0).toUpperCase() + schemaType.slice(1);
+      
       if (editingSchemaId) {
         await api.put(`/ledgers/${ledgerId}/schemas/${editingSchemaId}`, {
-          name: schemaName,
+          name: derivedName,
           type: schemaType,
           fields: processedFields
         });
         setEditingSchemaId(null);
       } else {
         await api.post(`/ledgers/${ledgerId}/schemas`, {
-          name: schemaName,
+          name: derivedName,
           type: schemaType,
           fields: processedFields
         });
       }
-
-      setSchemaName("");
       setFields([{ id: Date.now().toString(), name: "Description", type: "text", options: "", isAmount: false }]);
       fetchSchemas();
     } catch (err) {
@@ -91,7 +90,6 @@ const SchemaBuilder = () => {
 
   const handleEditClick = (schema) => {
     setEditingSchemaId(schema.id);
-    setSchemaName(schema.name);
     setSchemaType(schema.type);
     
     // Transform options back to string for the input field
@@ -106,7 +104,6 @@ const SchemaBuilder = () => {
   
   const cancelEdit = () => {
     setEditingSchemaId(null);
-    setSchemaName("");
     setSchemaType("expense");
     setFields([{ id: Date.now().toString(), name: "Description", type: "text", options: "", isAmount: false }]);
   };
@@ -125,29 +122,16 @@ const SchemaBuilder = () => {
             <Plus size={20} className="text-brand-500" /> {editingSchemaId ? "Edit Schema Template" : "Create New Schema"}
           </h2>
           <form onSubmit={handleSaveSchema}>
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Schema Name</label>
-                <input 
-                  type="text" 
-                  className="input-field" 
-                  placeholder="e.g. Travel, Salary, Utilities"
-                  value={schemaName}
-                  onChange={(e) => setSchemaName(e.target.value)}
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Type</label>
-                <select 
-                  className="input-field"
-                  value={schemaType}
-                  onChange={(e) => setSchemaType(e.target.value)}
-                >
-                  <option value="expense">Expense</option>
-                  <option value="income">Income</option>
-                </select>
-              </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1">Type</label>
+              <select 
+                className="input-field max-w-xs"
+                value={schemaType}
+                onChange={(e) => setSchemaType(e.target.value)}
+              >
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
             </div>
 
             <div className="border-t border-slate-200 pt-4 mt-2">
