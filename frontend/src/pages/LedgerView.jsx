@@ -54,7 +54,7 @@ const LedgerView = () => {
   const handleDelete = async (id) => {
     if(window.confirm("Are you sure you want to delete this entry?")) {
       try {
-        await api.delete(`/entries/${id}`);
+        await api.delete(`/ledgers/entries/${id}`);
         setEntries(entries.filter(e => e.id !== id));
       } catch (err) {
         console.error(err);
