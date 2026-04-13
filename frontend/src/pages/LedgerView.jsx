@@ -8,6 +8,7 @@ import Confetti from "react-confetti";
 import { useWindowSize } from "react-use";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import CoinLoader from "../components/CoinLoader";
 
 const LedgerView = () => {
   const { ledgerId } = useParams();
@@ -324,7 +325,7 @@ const LedgerView = () => {
     doc.save(`${ledgerName}_Report.pdf`);
   };
 
-  if (loading) return <div className="p-8 text-center">Loading...</div>;
+  if (loading) return <CoinLoader />;
 
   // Calculate stats based on 'isAmount' field in schema
   let totalIncome = 0;
@@ -359,7 +360,7 @@ const LedgerView = () => {
         <div className="flex justify-between items-end mb-8">
         <div>
           <Link to="/dashboard" className="text-brand-600 hover:underline mb-2 inline-block">&larr; Back to Dashboard</Link>
-          <h1 className="text-3xl font-bold text-slate-800">{ledger?.name || "Loading..."}</h1>
+          <h1 className="text-3xl font-bold text-slate-800">{ledger?.name || "..." }</h1>
         </div>
         <div className="flex gap-3">
           <Link to={`/ledgers/${ledgerId}/schema-builder`} className="btn-secondary flex items-center gap-2">

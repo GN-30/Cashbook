@@ -40,6 +40,11 @@
     50% { transform: scale(1.1) translate(2%, 2%); opacity: 1; }
     100% { transform: scale(1); opacity: 0.8; }
   }
+
+  @keyframes coinFlip {
+    0% { transform: perspective(400px) rotateY(0deg); }
+    100% { transform: perspective(400px) rotateY(360deg); }
+  }
 }
 
 @layer components {
